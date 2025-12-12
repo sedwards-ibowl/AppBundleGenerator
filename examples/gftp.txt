@@ -1,0 +1,136 @@
+✅ Goal
+
+Make your build produce:
+
+Gftp.app/
+  Contents/
+    MacOS/gftp        ← Your built binary
+    Resources/
+      lib/gtk-3.0/ ... all deps
+      share/
+      locale/
+    Frameworks/       ← optional, if you prefer
+
+
+AND ensure:
+
+gftp uses embedded GTK libraries, not jhbuild’s
+
+No runtime references to ~/gtk or ~/jhbuild/install
+
+No DYLD lookups outside the bundle
+
+jhbuild can continue building GTK dependencies, but the app bundle generator takes over afterward
+
+✔️ High-Level Solution
+
+You do NOT patch gftp.
+You patch your build and AppBundleGenerator process:
+
+Build gftp + dependencies with jhbuild
+→ output goes to:
+/Users/sedwards/source/jhbuild/install
+
+Stage everything into a bundle-friendly location
+AppBundleGenerator gets a new feature:
+
+--stage-dependencies DIR
+
+
+Meaning:
+
+AppBundleGenerator --stage-dependencies ~/source/jhbuild/install ...
+
+
+It then copies:
+
+lib/ → Gftp.app/Contents/Resources/lib/
+
+share/ → Gftp.app/Contents/Resources/share/
+
+etc/ → Gftp.app/Contents/Resources/etc/
+
+share/locale/ → inside Resources
+(you already see mo files being installed)
+
+Rewrite rpaths in ALL binaries & libraries
+Using:
+
+install_name_tool -id @rpath/libwhatever.dylib libwhatever.dylib
+install_name_tool -change /Users/.../jhbuild/install/lib/libgtk-3.dylib @rpath/libgtk-3.dylib binary
+
+
+The bundle now becomes fully self-contained and relocatable.
+
+📌 What you need to modify in AppBundleGenerator
+Add a --stage-jhbuild INSTALLDIR option
+
+Your current generator handles:
+
+✔ icons
+✔ Info.plist
+✔ signing
+✔ execution stubs
+
+But missing one key feature:
+
+🆕 Dependency staging for GTK/GLib bundles
+
+Add:
+
+--stage DIR
+    Copies libraries, share/, locale/, and etc/ into the app bundle.
+    Rewrites RPATHs and install_name paths to point to @executable_path/../Resources/lib
+
+
+Internally this does:
+
+Step 1 — Copy Files
+rsync -a $DIR/lib/     Gftp.app/Contents/Resources/lib/
+rsync -a $DIR/share/   Gftp.app/Contents/Resources/share/
+rsync -a $DIR/etc/     Gftp.app/Contents/Resources/etc/
+
+
+(You can exclude pkgconfig, gir, includes)
+
+Step 2 — Rewrite RPATHs
+
+For Contents/MacOS/gftp:
+
+install_name_tool -add_rpath @executable_path/../Resources/lib Contents/MacOS/gftp
+
+
+For each .dylib:
+
+install_name_tool -id @rpath/libgtk-3.dylib libgtk-3.dylib
+install_name_tool -change /Users/sedwards/.../gtk/... @rpath/libgtk-3.dylib <every binary>
+
+Step 3 — Fix GLib schemas
+
+Copy:
+
+glib-2.0/schemas
+
+
+Compile inside bundle:
+
+glib-compile-schemas Gftp.app/Contents/Resources/share/glib-2.0/schemas
+
+Step 4 — Minimal wrapper script
+
+Put this in Contents/MacOS/gftp (your generator already allows this):
+
+#!/bin/bash
+export XDG_DATA_DIRS="@executable_path/../Resources/share:$XDG_DATA_DIRS"
+export GTK_PATH="@executable_path/../Resources/lib/gtk-3.0"
+export GTK_DATA_PREFIX="@executable_path/../Resources"
+export GSETTINGS_SCHEMA_DIR="@executable_path/../Resources/share/glib-2.0/schemas"
+exec "@executable_path/gftp-bin" "$@"
+
+
+Rename your actual binary to:
+
+Contents/MacOS/gftp-bin
+
+
+Bundle uses wrapper.

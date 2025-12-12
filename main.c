@@ -155,6 +155,7 @@ static struct option long_options[] = {
     {"allow-unsigned",  no_argument,       0, 'u'},
     {"allow-dyld-vars", no_argument,       0, 'd'},
     {"help",            no_argument,       0, 'h'},
+    {"stage-dependencies", required_argument, 0, 'S'},
     {0, 0, 0, 0}
 };
 
@@ -185,6 +186,7 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
             case 'j': options->allow_jit = TRUE; break;
             case 'u': options->allow_unsigned_memory = TRUE; break;
             case 'd': options->allow_dyld_vars = TRUE; break;
+            case 'S': options->stage_deps_path = optarg; break;
             case 'h': return usage(argv[0]);
             case '?': /* Unknown option or missing argument */
                 fprintf(stderr, "\nTry '%s --help' for more information.\n", argv[0]);
@@ -366,3 +368,4 @@ cleanup:
 
     return ret;
 }
+
