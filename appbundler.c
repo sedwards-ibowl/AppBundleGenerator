@@ -335,7 +335,8 @@ static BOOL generate_pkginfo_file(const char* path_to_bundle_contents)
 
 /* inspired by write_desktop_entry() in xdg support code */
 static BOOL generate_bundle_script(const char *path_to_bundle_macos, const char *path,
-                                   const char *args __attribute__((unused)), const char *linkname)
+                                   const char *args __attribute__((unused)), const char *linkname,
+                                   BOOL has_staged_deps)
 {
     FILE *file;
     char *bundle_and_script;
@@ -351,16 +352,32 @@ static BOOL generate_bundle_script(const char *path_to_bundle_macos, const char 
     fprintf(file, "#!/bin/sh\n");
     fprintf(file, "#Helper script for %s\n\n", linkname);
 
+    /* If dependencies are staged, set up environment for GTK/GLib */
+    if (has_staged_deps) {
+        fprintf(file, "# Get the directory containing this script\n");
+        fprintf(file, "SCRIPT_DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n");
+        fprintf(file, "RESOURCES_DIR=\"$SCRIPT_DIR/../Resources\"\n\n");
+
+        fprintf(file, "# Set up environment for bundled dependencies\n");
+        fprintf(file, "export DYLD_LIBRARY_PATH=\"$RESOURCES_DIR/lib:${DYLD_LIBRARY_PATH}\"\n");
+        fprintf(file, "export XDG_DATA_DIRS=\"$RESOURCES_DIR/share:${XDG_DATA_DIRS}\"\n");
+        fprintf(file, "export GTK_PATH=\"$RESOURCES_DIR/lib/gtk-3.0\"\n");
+        fprintf(file, "export GTK_DATA_PREFIX=\"$RESOURCES_DIR\"\n");
+        fprintf(file, "export GSETTINGS_SCHEMA_DIR=\"$RESOURCES_DIR/share/glib-2.0/schemas\"\n");
+        fprintf(file, "export GDK_PIXBUF_MODULEDIR=\"$RESOURCES_DIR/lib/gdk-pixbuf-2.0/2.10.0/loaders\"\n");
+        fprintf(file, "export GDK_PIXBUF_MODULE_FILE=\"$RESOURCES_DIR/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache\"\n\n");
+    }
+
     /* Just like xdg-menus we DO NOT support running a wine binary other
      * than one that is already present in the path
      */
-    fprintf(file, "%s \n\n", path );
+    fprintf(file, "%s \"$@\"\n\n", path);
 
     fprintf(file, "#EOF");
-    
-    fclose(file);    
+
+    fclose(file);
     chmod(bundle_and_script,0755);
-    
+
     return TRUE;
 }
 
@@ -463,7 +480,8 @@ BOOL build_app_bundle(const AppBundleOptions *options)
 
     DEBUG_PRINT("created bundle %s\n", path_to_bundle);
 
-    ret = generate_bundle_script(path_to_bundle_macos, options->executable_path, NULL, options->bundle_name);
+    ret = generate_bundle_script(path_to_bundle_macos, options->executable_path, NULL,
+                                options->bundle_name, options->stage_deps_path != NULL);
     if(ret==FALSE)
        return ret;
 
@@ -591,6 +609,185 @@ BOOL verify_codesign(const char *bundle_path)
     }
 
     DEBUG_PRINT("Code signature verification successful\n");
+    return TRUE;
+}
+
+/* Stage dependencies from source directory into bundle */
+BOOL stage_dependencies(const char *source_dir, const char *bundle_path, const char *bundle_name)
+{
+    char cmd[4096];
+    char *resources_path;
+    int result;
+
+    if (!source_dir || !bundle_path || !bundle_name) {
+        DEBUG_PRINT("Invalid parameters for stage_dependencies\n");
+        return FALSE;
+    }
+
+    printf("Staging dependencies from: %s\n", source_dir);
+
+    resources_path = heap_printf("%s/Contents/Resources", bundle_path);
+
+    /* Create Resources directory structure */
+    if (!create_directories(resources_path)) {
+        fprintf(stderr, "Failed to create Resources directory\n");
+        free(resources_path);
+        return FALSE;
+    }
+
+    /* Copy lib/ directory */
+    snprintf(cmd, sizeof(cmd),
+             "rsync -a --exclude='pkgconfig' --exclude='*.a' --exclude='*.la' "
+             "'%s/lib/' '%s/lib/' 2>&1",
+             source_dir, resources_path);
+    printf("  Copying libraries...\n");
+    result = system(cmd);
+    if (result != 0) {
+        fprintf(stderr, "Warning: Failed to copy lib/ directory (exit code: %d)\n", result);
+    }
+
+    /* Copy share/ directory */
+    snprintf(cmd, sizeof(cmd),
+             "rsync -a --exclude='gtk-doc' --exclude='man' --exclude='doc' "
+             "'%s/share/' '%s/share/' 2>&1",
+             source_dir, resources_path);
+    printf("  Copying shared resources...\n");
+    result = system(cmd);
+    if (result != 0) {
+        fprintf(stderr, "Warning: Failed to copy share/ directory (exit code: %d)\n", result);
+    }
+
+    /* Copy etc/ directory if it exists */
+    snprintf(cmd, sizeof(cmd),
+             "if [ -d '%s/etc' ]; then rsync -a '%s/etc/' '%s/etc/' 2>&1; fi",
+             source_dir, source_dir, resources_path);
+    printf("  Copying configuration files...\n");
+    result = system(cmd);
+    if (result != 0) {
+        DEBUG_PRINT("Note: etc/ directory not found or failed to copy\n");
+    }
+
+    /* Compile GLib schemas if present */
+    compile_glib_schemas(resources_path);
+
+    free(resources_path);
+
+    /* Rewrite RPATHs in all binaries and libraries */
+    if (!rewrite_rpaths(bundle_path)) {
+        fprintf(stderr, "Warning: RPATH rewriting encountered errors\n");
+    }
+
+    printf("Dependency staging complete\n");
+    return TRUE;
+}
+
+/* Rewrite RPATHs in all binaries and dylibs to use @executable_path */
+BOOL rewrite_rpaths(const char *bundle_path)
+{
+    char cmd[4096];
+    char *macos_path;
+    char *resources_path;
+    int result;
+
+    if (!bundle_path) {
+        DEBUG_PRINT("Invalid bundle path for RPATH rewriting\n");
+        return FALSE;
+    }
+
+    printf("Rewriting RPATHs for relocatable bundle...\n");
+
+    macos_path = heap_printf("%s/Contents/MacOS", bundle_path);
+    resources_path = heap_printf("%s/Contents/Resources", bundle_path);
+
+    /* Add @executable_path/../Resources/lib to RPATH of main executable */
+    snprintf(cmd, sizeof(cmd),
+             "find '%s' -type f -perm +111 -exec sh -c '"
+             "file \"{}\" | grep -q \"Mach-O.*executable\" && "
+             "install_name_tool -add_rpath @executable_path/../Resources/lib \"{}\" 2>/dev/null"
+             "' \\; 2>&1",
+             macos_path);
+    printf("  Adding RPATH to executables...\n");
+    result = system(cmd);
+    if (result != 0) {
+        DEBUG_PRINT("Note: Some executables may already have RPATH set\n");
+    }
+
+    /* Rewrite dylib IDs to use @rpath */
+    snprintf(cmd, sizeof(cmd),
+             "find '%s/lib' -name '*.dylib' -type f 2>/dev/null | while read dylib; do "
+             "  base=$(basename \"$dylib\"); "
+             "  install_name_tool -id \"@rpath/$base\" \"$dylib\" 2>/dev/null; "
+             "done",
+             resources_path);
+    printf("  Rewriting library IDs...\n");
+    result = system(cmd);
+    if (result != 0) {
+        DEBUG_PRINT("Note: Some library IDs may not need rewriting\n");
+    }
+
+    /* Rewrite library references in all Mach-O files to use @rpath */
+    snprintf(cmd, sizeof(cmd),
+             "find '%s' -type f \\( -perm +111 -o -name '*.dylib' \\) -exec sh -c '"
+             "file \"{}\" | grep -q Mach-O && "
+             "for oldpath in $(otool -L \"{}\" 2>/dev/null | grep -E '\\.(dylib|so)' | "
+             "  grep -v '@rpath' | grep -v '/usr/lib' | grep -v '/System' | "
+             "  awk '\"'\"'{print $1}'\"'\"'); do "
+             "  newpath=@rpath/$(basename \"$oldpath\"); "
+             "  install_name_tool -change \"$oldpath\" \"$newpath\" \"{}\" 2>/dev/null; "
+             "done"
+             "' \\; 2>&1",
+             bundle_path);
+    printf("  Rewriting library references...\n");
+    result = system(cmd);
+    if (result != 0) {
+        DEBUG_PRINT("Note: Some library references may not need rewriting\n");
+    }
+
+    free(macos_path);
+    free(resources_path);
+
+    printf("RPATH rewriting complete\n");
+    return TRUE;
+}
+
+/* Compile GLib schemas if present in the bundle */
+BOOL compile_glib_schemas(const char *bundle_resources)
+{
+    char cmd[2048];
+    char *schemas_dir;
+    int result;
+
+    if (!bundle_resources) {
+        DEBUG_PRINT("Invalid resources path for schema compilation\n");
+        return FALSE;
+    }
+
+    schemas_dir = heap_printf("%s/share/glib-2.0/schemas", bundle_resources);
+
+    /* Check if schemas directory exists */
+    snprintf(cmd, sizeof(cmd), "[ -d '%s' ]", schemas_dir);
+    result = system(cmd);
+
+    if (result == 0) {
+        printf("  Compiling GLib schemas...\n");
+
+        /* Compile schemas */
+        snprintf(cmd, sizeof(cmd), "glib-compile-schemas '%s' 2>&1", schemas_dir);
+        result = system(cmd);
+
+        if (result != 0) {
+            fprintf(stderr, "Warning: GLib schema compilation failed (exit code: %d)\n", result);
+            fprintf(stderr, "  The application may not work correctly without compiled schemas\n");
+            free(schemas_dir);
+            return FALSE;
+        }
+
+        printf("  GLib schemas compiled successfully\n");
+    } else {
+        DEBUG_PRINT("Note: No GLib schemas found at %s\n", schemas_dir);
+    }
+
+    free(schemas_dir);
     return TRUE;
 }
 

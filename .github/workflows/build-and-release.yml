@@ -1,0 +1,243 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on macOS
+    runs-on: macos-12
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Show build environment
+        run: |
+          make info
+          echo "Xcode version:"
+          xcodebuild -version
+          echo "clang version:"
+          clang --version
+
+      - name: Check for deprecated APIs
+        run: make check-deprecated
+
+      - name: Build AppBundleGenerator
+        run: make clean && make
+
+      - name: Verify build output
+        run: |
+          ls -lh AppBundleGenerator
+          file AppBundleGenerator
+          otool -L AppBundleGenerator
+
+      - name: Run basic smoke tests
+        run: |
+          # Test 1: Show help
+          ./AppBundleGenerator --help
+
+          # Test 2: Create a basic test bundle
+          ./AppBundleGenerator 'Test App' /tmp '/bin/echo Hello'
+
+          # Test 3: Verify bundle structure
+          if [ -d "/tmp/Test App.app" ]; then
+            echo "Bundle created successfully"
+            ls -R "/tmp/Test App.app"
+
+            # Verify Info.plist
+            plutil -lint "/tmp/Test App.app/Contents/Info.plist"
+            echo "Info.plist is valid"
+
+            # Verify executable exists and is executable
+            if [ -x "/tmp/Test App.app/Contents/MacOS/Test App" ]; then
+              echo "Bundle executable is valid"
+            else
+              echo "ERROR: Bundle executable missing or not executable"
+              exit 1
+            fi
+          else
+            echo "ERROR: Bundle was not created"
+            exit 1
+          fi
+
+      - name: Package binary
+        run: |
+          mkdir -p artifacts
+          cp AppBundleGenerator artifacts/
+          cp README.md artifacts/ 2>/dev/null || echo "No README.md found"
+          cp CHANGELOG.md artifacts/ 2>/dev/null || echo "No CHANGELOG.md found"
+          tar -czf AppBundleGenerator-macos.tar.gz -C artifacts .
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AppBundleGenerator-macos
+          path: AppBundleGenerator-macos.tar.gz
+          retention-days: 30
+
+      - name: Upload binary for release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binary
+          path: AppBundleGenerator
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: AppBundleGenerator-macos
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: release-binary
+          path: binary
+
+      - name: Prepare release files
+        run: |
+          # Make binary executable
+          chmod +x binary/AppBundleGenerator
+
+          # Create a versioned tarball
+          VERSION=${GITHUB_REF#refs/tags/v}
+          mkdir -p release
+          cp binary/AppBundleGenerator release/
+          tar -czf "AppBundleGenerator-${VERSION}-macos.tar.gz" -C release AppBundleGenerator
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          if [ -f CHANGELOG.md ]; then
+            # Extract changelog section for this version
+            NOTES=$(awk "/^## \[?${VERSION}\]?/,/^## \[?[0-9]/" CHANGELOG.md | sed '1d;$d' || echo "See CHANGELOG.md for details")
+          else
+            NOTES="Release ${VERSION}"
+          fi
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            AppBundleGenerator-*.tar.gz
+            AppBundleGenerator-macos.tar.gz
+          body: |
+            ## AppBundleGenerator ${{ github.ref_name }}
+
+            macOS-specific utility for creating Application Bundles from executables.
+
+            ### Requirements
+            - macOS 12.0 (Monterey) or later
+            - Xcode Command Line Tools
+
+            ### Installation
+            ```bash
+            tar -xzf AppBundleGenerator-*-macos.tar.gz
+            sudo mv AppBundleGenerator /usr/local/bin/
+            ```
+
+            ### Changes
+            ${{ steps.changelog.outputs.notes }}
+
+            ### Checksums
+            ```
+            sha256sum AppBundleGenerator-*-macos.tar.gz
+            ```
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test-advanced-features:
+    name: Test Advanced Features
+    runs-on: macos-12
+    needs: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: AppBundleGenerator-macos
+
+      - name: Extract and setup binary
+        run: |
+          tar -xzf AppBundleGenerator-macos.tar.gz
+          chmod +x AppBundleGenerator
+
+      - name: Create test icon (PNG)
+        run: |
+          # Create a simple test icon using sips
+          sips -z 512 512 -s format png /System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/GenericApplicationIcon.icns --out test-icon.png 2>/dev/null || {
+            # Fallback: create a simple colored PNG
+            echo "Creating fallback icon"
+            # Use ImageMagick if available, otherwise skip icon test
+            which convert && convert -size 512x512 xc:blue test-icon.png || echo "Skipping PNG icon test"
+          }
+
+      - name: Test with icon
+        run: |
+          if [ -f test-icon.png ]; then
+            ./AppBundleGenerator --icon test-icon.png 'Icon Test' /tmp '/bin/echo Icon'
+            if [ -f "/tmp/Icon Test.app/Contents/Resources/icon.icns" ]; then
+              echo "Icon conversion successful"
+            else
+              echo "WARNING: Icon was not created"
+            fi
+          fi
+
+      - name: Test with bundle options
+        run: |
+          ./AppBundleGenerator \
+            --identifier com.github.appbundlegenerator.test \
+            --category public.app-category.developer-tools \
+            --version 1.0.0 \
+            --min-os 12.0 \
+            'Options Test' /tmp '/bin/echo Options'
+
+          # Verify custom options in Info.plist
+          plutil -p "/tmp/Options Test.app/Contents/Info.plist" | grep -q "com.github.appbundlegenerator.test" && echo "Custom identifier set"
+          plutil -p "/tmp/Options Test.app/Contents/Info.plist" | grep -q "public.app-category.developer-tools" && echo "Category set"
+
+      - name: Test ad-hoc code signing
+        run: |
+          ./AppBundleGenerator \
+            --sign - \
+            --hardened-runtime \
+            'Signed Test' /tmp '/bin/echo Signed'
+
+          # Verify code signature
+          codesign --verify --verbose=2 "/tmp/Signed Test.app"
+          codesign -dvvv "/tmp/Signed Test.app"
+          echo "Ad-hoc signing successful"

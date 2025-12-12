@@ -100,6 +100,13 @@ int usage(char *progname)
    printf("  --allow-unsigned     Allow unsigned executable memory\n");
    printf("  --allow-dyld-vars    Allow DYLD environment variables\n\n");
 
+   printf("Dependency Bundling:\n");
+   printf("  --stage-dependencies DIR\n");
+   printf("                       Copy dependencies from DIR into app bundle\n");
+   printf("                       Copies lib/, share/, etc/, locale/ directories\n");
+   printf("                       Rewrites RPATHs to @executable_path/../Resources/lib\n");
+   printf("                       Useful for bundling GTK, GLib, and other libraries\n\n");
+
    printf("Other Options:\n");
    printf("  --help, -h           Show this help message\n\n");
 
@@ -127,6 +134,12 @@ int usage(char *progname)
    printf("  5. Terminal launcher example:\n");
    printf("     %s 'Midnight Commander' /Applications \\\n", progname);
    printf("       'open -b com.apple.terminal /usr/local/bin/mc' Terminal.png\n\n");
+
+   printf("  6. GTK application with bundled dependencies:\n");
+   printf("     %s --icon app.svg \\\n", progname);
+   printf("       --stage-dependencies ~/gtk/install \\\n");
+   printf("       --sign - --hardened-runtime --allow-dyld-vars \\\n");
+   printf("       'My GTK App' /Applications '/path/to/gftp'\n\n");
 
    printf("Notes:\n");
    printf("  - May require sudo/root depending on destination directory\n");
@@ -270,6 +283,9 @@ int main(int argc, char *argv[])
     if (options.icon_path) {
         printf("  Icon: %s\n", options.icon_path);
     }
+    if (options.stage_deps_path) {
+        printf("  Dependencies: %s\n", options.stage_deps_path);
+    }
     if (options.signing_identity) {
         printf("  Signing: %s%s\n", options.signing_identity,
                options.enable_hardened_runtime ? " (hardened runtime)" : "");
@@ -287,6 +303,17 @@ int main(int argc, char *argv[])
 
     /* Calculate bundle path for code signing operations */
     bundle_path = heap_printf("%s/%s.app", options.bundle_dest, options.bundle_name);
+
+    /* Phase 1.5: Stage dependencies (if requested) */
+    if (options.stage_deps_path) {
+        printf("\nStaging dependencies...\n");
+        if (!stage_dependencies(options.stage_deps_path, bundle_path, options.bundle_name)) {
+            fprintf(stderr, "Warning: Dependency staging encountered errors\n");
+            fprintf(stderr, "  Bundle may not be fully functional\n");
+            /* Continue anyway - not fatal */
+        }
+        printf("\n");
+    }
 
     /* Phase 2: Code signing (if requested) */
     if (options.signing_identity) {
