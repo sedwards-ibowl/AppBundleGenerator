@@ -49,55 +49,30 @@ typedef struct {
     const char *bundle_dest;
     const char *executable_path;
 
-    //char *bundle_name;
-    char *dest_dir;
-    char *exec_path;
-    char *icon_path;
-    char *identifier;
-    char *version;
-    char *sign_identity;
-    char *entitlements_path;
-    int hardened_runtime;
-    int allow_jit;
-    int allow_unsigned;
-    //int allow_dyld_vars;
-    char *category;
-    char *min_os;
-    int force_sign;
     /* Optional - icon */
-    //const char *icon_path;
+    const char *icon_path;
 
     /* Optional - code signing */
     const char *signing_identity;
     BOOL enable_hardened_runtime;
     const char *entitlements_file;
-    //BOOL force_sign;
+    BOOL force_sign;
 
     /* Optional - Info.plist customization */
     const char *bundle_identifier;
     const char *min_os_version;
     const char *app_category;
-    //const char *version;
+    const char *version;
     const char *short_version;
 
     /* Optional - entitlement exceptions */
-    //BOOL allow_jit;
+    BOOL allow_jit;
     BOOL allow_unsigned_memory;
     BOOL allow_dyld_vars;
 
-    /* Staging option */
-    char *stage_deps_path;
+    /* Optional - dependency staging */
+    const char *stage_deps_path;
 } AppBundleOptions;
-
-#if 0
-AppBundleOptions options = {
-    .bundle_name = NULL,
-    .dest_dir = NULL,
-    .exec_path = NULL,
-    .stage_deps_path = NULL,
- 
-};
-#endif
 
 /* Code signing options structure */
 typedef struct {
@@ -126,6 +101,11 @@ BOOL generate_entitlements_file(const char *output_path, BOOL hardened_runtime,
 /* Code signing functions */
 BOOL codesign_bundle(const char *bundle_path, const CodeSignOptions *options);
 BOOL verify_codesign(const char *bundle_path);
+
+/* Dependency staging functions */
+BOOL stage_dependencies(const char *source_dir, const char *bundle_path, const char *bundle_name);
+BOOL rewrite_rpaths(const char *bundle_path);
+BOOL compile_glib_schemas(const char *bundle_resources);
 
 /* Error handling */
 void print_error(ErrorCode code, const char *details);
