@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Direct executable launching with `--direct-exec` to bypass wrapper scripts.
 - First-run resource initialization (`--init-resources`) to copy resources from the bundle to a user's local directory on first launch.
 - Flexible resource copying with `--copy-resources` to copy an entire directory into the bundle.
 - GitHub Actions workflow for automated builds and releases

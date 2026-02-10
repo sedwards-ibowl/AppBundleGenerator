@@ -82,6 +82,9 @@ Installs to `/usr/local/bin/AppBundleGenerator`
 **First-Run Resource Initialization:**
 - `--init-resources <source_subdir>:<dest_dirname>` - On first launch, copies resources from the bundle to a user's local directory.
 
+**Direct Executable:**
+- `--direct-exec PATH` - Launch executable directly without a wrapper script. (Path is relative to the bundle's Resources/bin or absolute if specified)
+
 ## Examples
 
 ### Development Build

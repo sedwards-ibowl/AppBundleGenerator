@@ -104,6 +104,17 @@ On first launch, you can automatically copy resources (like default configuratio
 ```
 This command will copy the contents of `/path/to/my-gftp-resources/gconf` into `~/Library/gftp` the first time the user runs `gFTP.app`.
 
+## Direct Executable
+
+To launch an executable directly, bypassing the automatically generated shell wrapper script, use the `--direct-exec` option. This is useful for applications that do not require environment variables to be set by a script or handle them internally.
+
+```bash
+./AppBundleGenerator \
+  --direct-exec /path/to/my-app-binary \
+  'MyApp' /Applications
+```
+**Note:** When using `--direct-exec`, you should not provide the positional `ExecutableOrCommand` argument.
+
 ## Common Scenarios
 
 ### Wrap a CLI tool as a Mac app
@@ -172,6 +183,7 @@ ls -R "/tmp/My App.app"
 | `--stage-dependencies DIR` | Bundle dependencies from prefix | `--stage-dependencies /opt/homebrew` |
 | `--copy-resources DIR` | Copy directory to Resources | `--copy-resources ./assets` |
 | `--init-resources SRC:DEST` | Initialize resources on first run | `--init-resources gconf:gftp` |
+| `--direct-exec PATH` | Launch executable directly (no script) | `--direct-exec /usr/bin/myexec` |
 
 ### Get Help
 
