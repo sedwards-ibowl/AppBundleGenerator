@@ -68,6 +68,18 @@ open "/tmp/My App.app"
 security find-identity -p codesigning -v
 ```
 
+## First-Run Resource Initialization
+
+On first launch, you can automatically copy resources (like default configurations) from your app bundle to a user's local directory (`~/Library`).
+
+```bash
+./AppBundleGenerator \
+  --init-resources gconf:gftp \
+  --stage-dependencies /path/to/my-gftp-resources \
+  'gFTP' /Applications '/usr/local/bin/gftp'
+```
+This command will copy the contents of `/path/to/my-gftp-resources/gconf` into `~/Library/gftp` the first time the user runs `gFTP.app`.
+
 ## Common Scenarios
 
 ### Wrap a CLI tool as a Mac app
@@ -133,6 +145,7 @@ ls -R "/tmp/My App.app"
 | `--identifier ID` | Custom bundle ID | `--identifier com.example.app` |
 | `--version VER` | Set version | `--version 2.0.0` |
 | `--min-os VER` | Minimum macOS version | `--min-os 12.0` |
+| `--init-resources SRC:DEST` | Initialize resources on first run | `--init-resources gconf:gftp` |
 
 ### Get Help
 

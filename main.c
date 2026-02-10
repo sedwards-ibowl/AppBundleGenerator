@@ -107,6 +107,13 @@ int usage(char *progname)
    printf("                       Rewrites RPATHs to @executable_path/../Resources/lib\n");
    printf("                       Useful for bundling GTK, GLib, and other libraries\n\n");
 
+   printf("First-Run Resource Initialization:\n");
+   printf("  --init-resources <source_subdir>:<dest_dirname>\n");
+   printf("                       On first launch, copies resources from\n");
+   printf("                       ./Contents/Resources/<source_subdir> to\n");
+   printf("                       $HOME/Library/<dest_dirname>\n");
+   printf("                       Example: --init-resources gconf:gftp\n\n");
+
    printf("Other Options:\n");
    printf("  --help, -h           Show this help message\n\n");
 
@@ -169,6 +176,7 @@ static struct option long_options[] = {
     {"allow-dyld-vars", no_argument,       0, 'd'},
     {"help",            no_argument,       0, 'h'},
     {"stage-dependencies", required_argument, 0, 'S'},
+    {"init-resources",  required_argument, 0, 'r'},
     {0, 0, 0, 0}
 };
 
@@ -184,7 +192,7 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
     options->version = "1.0.0";
 
     /* Parse options */
-    while ((c = getopt_long(argc, argv, "i:s:e:I:m:c:V:hHFjud",
+    while ((c = getopt_long(argc, argv, "i:s:e:I:m:c:V:hHFjudr:",
                            long_options, &option_index)) != -1) {
         switch (c) {
             case 'i': options->icon_path = optarg; break;
@@ -200,6 +208,18 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
             case 'u': options->allow_unsigned_memory = TRUE; break;
             case 'd': options->allow_dyld_vars = TRUE; break;
             case 'S': options->stage_deps_path = optarg; break;
+            case 'r': {
+                char *colon = strchr(optarg, ':');
+                if (colon) {
+                    *colon = '\0';
+                    options->init_resources_source = optarg;
+                    options->init_resources_dest = colon + 1;
+                } else {
+                    fprintf(stderr, "Error: Invalid format for --init-resources. Expected <source_subdir>:<dest_dirname>\n");
+                    return 1;
+                }
+                break;
+            }
             case 'h': return usage(argv[0]);
             case '?': /* Unknown option or missing argument */
                 fprintf(stderr, "\nTry '%s --help' for more information.\n", argv[0]);
@@ -285,6 +305,9 @@ int main(int argc, char *argv[])
     }
     if (options.stage_deps_path) {
         printf("  Dependencies: %s\n", options.stage_deps_path);
+    }
+    if (options.init_resources_source) {
+        printf("  Init Resources: %s -> %s\n", options.init_resources_source, options.init_resources_dest);
     }
     if (options.signing_identity) {
         printf("  Signing: %s%s\n", options.signing_identity,

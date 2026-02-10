@@ -12,5 +12,6 @@ AppBundleGenerator
 
 # Test bundles
 *.app/
+test_dir/
 
 AppBundleGenerator-2.0.dmg

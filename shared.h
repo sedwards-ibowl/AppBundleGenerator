@@ -72,6 +72,10 @@ typedef struct {
 
     /* Optional - dependency staging */
     const char *stage_deps_path;
+
+    /* Optional - resource initialization */
+    const char *init_resources_source;
+    const char *init_resources_dest;
 } AppBundleOptions;
 
 /* Code signing options structure */

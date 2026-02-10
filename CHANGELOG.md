@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- First-run resource initialization (`--init-resources`) to copy resources from the bundle to a user's local directory on first launch.
 - GitHub Actions workflow for automated builds and releases
 - Dependency staging system (`--stage-dependencies`) for bundling GTK/GLib libraries
   - Copies lib/, share/, etc/, locale/ directories into app bundle

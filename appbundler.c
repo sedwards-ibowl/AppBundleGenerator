@@ -336,12 +336,13 @@ static BOOL generate_pkginfo_file(const char* path_to_bundle_contents)
 
 
 /* inspired by write_desktop_entry() in xdg support code */
-static BOOL generate_bundle_script(const char *path_to_bundle_macos, const char *path,
-                                   const char *args __attribute__((unused)), const char *linkname,
-                                   BOOL has_staged_deps)
+static BOOL generate_bundle_script(const char *path_to_bundle_macos, const AppBundleOptions *options)
 {
     FILE *file;
     char *bundle_and_script;
+    const char *linkname = options->bundle_name;
+    const char *path = options->executable_path;
+    BOOL has_staged_deps = (options->stage_deps_path != NULL);
 
     bundle_and_script = heap_printf("%s/%s", path_to_bundle_macos, linkname);
 
@@ -373,6 +374,35 @@ static BOOL generate_bundle_script(const char *path_to_bundle_macos, const char 
         fprintf(file, "export FONTCONFIG_PATH=\"$RESOURCES_DIR/etc/fonts\"\n");
         fprintf(file, "export FONTCONFIG_FILE=\"$RESOURCES_DIR/etc/fonts/fonts.conf\"\n");
         fprintf(file, "export GI_TYPELIB_PATH=\"$RESOURCES_DIR/lib/girepository-1.0\"\n\n");
+    }
+
+    /* If first-run resource initialization is requested, add the copy logic */
+    if (options->init_resources_source && options->init_resources_dest) {
+        fprintf(file, "# --- First-Run Resource Initialization ---\n");
+        fprintf(file, "DEST_DIR=\"$HOME/Library/%s\"\n", options->init_resources_dest);
+        fprintf(file, "FLAG_FILE=\"$DEST_DIR/.setup_complete\"\n\n");
+
+        fprintf(file, "# Check if setup has already run\n");
+        fprintf(file, "if [ ! -f \"$FLAG_FILE\" ]; then\n");
+        fprintf(file, "    echo \"Performing first-run setup for %s...\"\n\n", linkname);
+
+        fprintf(file, "    # Get the directory containing this script\n");
+        fprintf(file, "    SCRIPT_DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n");
+        fprintf(file, "    RESOURCES_DIR=\"$SCRIPT_DIR/../Resources\"\n");
+        fprintf(file, "    SOURCE_SUBDIR=\"$RESOURCES_DIR/%s\"\n\n", options->init_resources_source);
+
+        fprintf(file, "    # Ensure the destination directory exists\n");
+        fprintf(file, "    mkdir -p \"$DEST_DIR\"\n\n");
+
+        fprintf(file, "    # Copy resources if the source subdirectory exists\n");
+        fprintf(file, "    if [ -d \"$SOURCE_SUBDIR\" ]; then\n");
+        fprintf(file, "        rsync -a \"$SOURCE_SUBDIR/\" \"$DEST_DIR/\"\n");
+        fprintf(file, "    fi\n\n");
+
+        fprintf(file, "    # Create flag file to prevent running this again\n");
+        fprintf(file, "    touch \"$FLAG_FILE\"\n");
+        fprintf(file, "fi\n");
+        fprintf(file, "# --- End First-Run Initialization ---\n\n");
     }
 
     /* For staged dependencies, use the bundled binary */
@@ -580,8 +610,7 @@ BOOL build_app_bundle(const AppBundleOptions *options)
 
     DEBUG_PRINT("created bundle %s\n", path_to_bundle);
 
-    ret = generate_bundle_script(path_to_bundle_macos, options->executable_path, NULL,
-                                options->bundle_name, options->stage_deps_path != NULL);
+    ret = generate_bundle_script(path_to_bundle_macos, options);
     if(ret==FALSE)
        return ret;
 
