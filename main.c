@@ -105,7 +105,9 @@ int usage(char *progname)
    printf("                       Copy dependencies from DIR into app bundle\n");
    printf("                       Copies lib/, share/, etc/, locale/ directories\n");
    printf("                       Rewrites RPATHs to @executable_path/../Resources/lib\n");
-   printf("                       Useful for bundling GTK, GLib, and other libraries\n\n");
+   printf("                       Useful for bundling GTK, GLib, and other libraries\n");
+   printf("  --copy-resources DIR\n");
+   printf("                       Copy all contents from DIR into the Resources folder\n\n");
 
    printf("First-Run Resource Initialization:\n");
    printf("  --init-resources <source_subdir>:<dest_dirname>\n");
@@ -177,6 +179,7 @@ static struct option long_options[] = {
     {"help",            no_argument,       0, 'h'},
     {"stage-dependencies", required_argument, 0, 'S'},
     {"init-resources",  required_argument, 0, 'r'},
+    {"copy-resources",  required_argument, 0, 'R'},
     {0, 0, 0, 0}
 };
 
@@ -192,7 +195,7 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
     options->version = "1.0.0";
 
     /* Parse options */
-    while ((c = getopt_long(argc, argv, "i:s:e:I:m:c:V:hHFjudr:",
+    while ((c = getopt_long(argc, argv, "i:s:e:I:m:c:V:hHFjudr:R:",
                            long_options, &option_index)) != -1) {
         switch (c) {
             case 'i': options->icon_path = optarg; break;
@@ -208,6 +211,7 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
             case 'u': options->allow_unsigned_memory = TRUE; break;
             case 'd': options->allow_dyld_vars = TRUE; break;
             case 'S': options->stage_deps_path = optarg; break;
+            case 'R': options->copy_resources_path = optarg; break;
             case 'r': {
                 char *colon = strchr(optarg, ':');
                 if (colon) {
@@ -305,6 +309,9 @@ int main(int argc, char *argv[])
     }
     if (options.stage_deps_path) {
         printf("  Dependencies: %s\n", options.stage_deps_path);
+    }
+    if (options.copy_resources_path) {
+        printf("  Copy Resources: %s\n", options.copy_resources_path);
     }
     if (options.init_resources_source) {
         printf("  Init Resources: %s -> %s\n", options.init_resources_source, options.init_resources_dest);

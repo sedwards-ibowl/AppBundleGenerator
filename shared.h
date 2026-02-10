@@ -76,6 +76,9 @@ typedef struct {
     /* Optional - resource initialization */
     const char *init_resources_source;
     const char *init_resources_dest;
+
+    /* Optional - copy resources */
+    const char *copy_resources_path;
 } AppBundleOptions;
 
 /* Code signing options structure */

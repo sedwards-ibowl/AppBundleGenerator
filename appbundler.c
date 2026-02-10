@@ -629,6 +629,18 @@ BOOL build_app_bundle(const AppBundleOptions *options)
            DEBUG_PRINT("Failed to add icon to Application Bundle\n");
     }
 
+    /* Copy user-specified resources into bundle */
+    if (options->copy_resources_path) {
+        char cmd[4096];
+        printf("Copying custom resources from %s...\n", options->copy_resources_path);
+        snprintf(cmd, sizeof(cmd), "rsync -a '%s/' '%s/'",
+                 options->copy_resources_path, path_to_bundle_resources);
+        if (system(cmd) != 0) {
+            fprintf(stderr, "Warning: Failed to copy custom resources from %s\n",
+                    options->copy_resources_path);
+        }
+    }
+
     /* Copy executable binary into bundle if staging dependencies */
     if (options->stage_deps_path) {
         ret = copy_executable_to_bundle(options->executable_path, path_to_bundle_resources);
@@ -891,15 +903,16 @@ BOOL rewrite_rpaths(const char *bundle_path)
 
     /* Rewrite library references in all Mach-O files to use @rpath */
     snprintf(cmd, sizeof(cmd),
-             "find '%s' -type f \\( -perm +111 -o -name '*.dylib' \\) -exec sh -c '"
-             "file \"{}\" | grep -q Mach-O && "
-             "for oldpath in $(otool -L \"{}\" 2>/dev/null | grep -E '\\.(dylib|so)' | "
-             "  grep -v '@rpath' | grep -v '/usr/lib' | grep -v '/System' | "
-             "  awk '\"'\"'{print $1}'\"'\"'); do "
-             "  newpath=@rpath/$(basename \"$oldpath\"); "
-             "  install_name_tool -change \"$oldpath\" \"$newpath\" \"{}\" 2>/dev/null; "
-             "done"
-             "' \\; 2>&1",
+             "find '%s' -type f \\( -perm +111 -o -name '*.dylib' \\) | while read file; do "
+             "  if file \"$file\" | grep -q Mach-O; then "
+             "    for oldpath in $(otool -L \"$file\" 2>/dev/null | grep -E '\\.(dylib|so)' | "
+             "      grep -v '@rpath' | grep -v '/usr/lib' | grep -v '/System' | "
+             "      awk '{print $1}'); do "
+             "      newpath=@rpath/$(basename \"$oldpath\"); "
+             "      install_name_tool -change \"$oldpath\" \"$newpath\" \"$file\" 2>/dev/null; "
+             "    done; "
+             "  fi; "
+             "done",
              bundle_path);
     printf("  Rewriting library references...\n");
     result = system(cmd);
