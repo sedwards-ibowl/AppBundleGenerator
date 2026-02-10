@@ -345,6 +345,25 @@ int main(int argc, char *argv[])
         printf("\n");
     }
 
+    /* Phase 1.7: Finalize bundle (compile schemas, rewrite rpaths) */
+    if (options.stage_deps_path || options.copy_resources_path) {
+        char *resources_path = heap_printf("%s/Contents/Resources", bundle_path);
+        printf("\nFinalizing bundle...\n");
+
+        /* Compile GLib schemas if present */
+        if (!compile_glib_schemas(resources_path)) {
+            fprintf(stderr, "Warning: GLib schema compilation failed\n");
+        }
+
+        /* Rewrite RPATHs for all binaries */
+        if (!rewrite_rpaths(bundle_path)) {
+            fprintf(stderr, "Warning: RPATH rewriting failed\n");
+        }
+
+        free(resources_path);
+        printf("\n");
+    }
+
     /* Phase 2: Code signing (if requested) */
     if (options.signing_identity) {
         CodeSignOptions sign_opts = {0};

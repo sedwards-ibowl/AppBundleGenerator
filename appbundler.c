@@ -843,15 +843,7 @@ BOOL stage_dependencies(const char *source_dir, const char *bundle_path, const c
         DEBUG_PRINT("Note: etc/ directory not found or failed to copy\n");
     }
 
-    /* Compile GLib schemas if present */
-    compile_glib_schemas(resources_path);
-
     free(resources_path);
-
-    /* Rewrite RPATHs in all binaries and libraries */
-    if (!rewrite_rpaths(bundle_path)) {
-        fprintf(stderr, "Warning: RPATH rewriting encountered errors\n");
-    }
 
     printf("Dependency staging complete\n");
     return TRUE;
