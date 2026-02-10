@@ -79,6 +79,9 @@ typedef struct {
 
     /* Optional - copy resources */
     const char *copy_resources_path;
+
+    /* Optional - direct executable */
+    const char *direct_exec_path;
 } AppBundleOptions;
 
 /* Code signing options structure */

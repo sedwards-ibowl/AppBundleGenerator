@@ -126,7 +126,7 @@ static CFStringRef generate_bundle_identifier(const char *linkname)
 
 CFDictionaryRef CreateMyDictionary(const char *linkname, const char *category,
                                    const char *min_os_version, const char *version,
-                                   const char *custom_identifier)
+                                   const char *custom_identifier, const char *executable_file_name)
 {
    CFMutableDictionaryRef dict;
    CFStringRef linkstr;
@@ -134,6 +134,7 @@ CFDictionaryRef CreateMyDictionary(const char *linkname, const char *category,
    CFStringRef minOsVer;
    CFStringRef catStr;
    CFStringRef verStr;
+   CFStringRef execFileStr;
 
    linkstr = CFStringCreateWithCString(NULL, linkname, kCFStringEncodingUTF8);
 
@@ -155,7 +156,10 @@ CFDictionaryRef CreateMyDictionary(const char *linkname, const char *category,
    /* Use modern locale code "en" instead of "English" */
    CFDictionarySetValue( dict, CFSTR("CFBundleDevelopmentRegion"), CFSTR("en") );
 
-   CFDictionarySetValue( dict, CFSTR("CFBundleExecutable"), linkstr );
+   /* Set CFBundleExecutable based on direct_exec_path or bundle_name */
+   execFileStr = CFStringCreateWithCString(NULL, executable_file_name, kCFStringEncodingUTF8);
+   CFDictionarySetValue( dict, CFSTR("CFBundleExecutable"), execFileStr );
+   CFRelease(execFileStr);
 
    /* Use dynamically generated identifier instead of hardcoded */
    CFDictionarySetValue( dict, CFSTR("CFBundleIdentifier"), bundleId );
@@ -283,6 +287,18 @@ static BOOL generate_plist(const char *path_to_bundle_contents, const AppBundleO
     CFPropertyListRef propertyList;
     CFStringRef pathstr;
     CFURLRef fileURL;
+    const char *executable_file_name;
+    char *basename_copy = NULL;
+
+    /* Determine the correct executable name for Info.plist */
+    if (options->direct_exec_path) {
+        const char *basename = strrchr(options->direct_exec_path, '/');
+        executable_file_name = basename ? basename + 1 : options->direct_exec_path;
+        basename_copy = strdup(executable_file_name); /* Need to duplicate if not using directly */
+        executable_file_name = basename_copy;
+    } else {
+        executable_file_name = options->bundle_name;
+    }
 
     /* Append all of the filename and path stuff and shove it in to CFStringRef */
     plist_path = heap_printf("%s/%s", path_to_bundle_contents, info_dot_plist_file);
@@ -294,7 +310,8 @@ static BOOL generate_plist(const char *path_to_bundle_contents, const AppBundleO
         options->app_category,
         options->min_os_version,
         options->version,
-        options->bundle_identifier
+        options->bundle_identifier,
+        executable_file_name
     );
  
     /* Create a URL that specifies the file we will create to hold the XML data. */
@@ -307,6 +324,7 @@ static BOOL generate_plist(const char *path_to_bundle_contents, const AppBundleO
     WriteMyPropertyListToFile( propertyList, fileURL );
     CFRelease(propertyList);
     CFRelease(fileURL);
+    if (basename_copy) free(basename_copy); // Free duplicated string
 
     DEBUG_PRINT("Creating Bundle Info.plist at %s\n", wine_dbgstr_a(plist_path));
 
@@ -332,6 +350,80 @@ static BOOL generate_pkginfo_file(const char* path_to_bundle_contents)
 
     fclose(file);
     return TRUE;
+}
+
+/* Copy executable binary into bundle's MacOS directory for direct execution */
+static BOOL copy_direct_executable(const char *executable_path, const char *path_to_bundle_macos)
+{
+    FILE *src, *dst;
+    char *dest_path;
+    const char *basename;
+    char buffer[8192];
+    size_t bytes;
+    struct stat st;
+    BOOL ret = FALSE;
+
+    if (!executable_path || !path_to_bundle_macos) {
+        DEBUG_PRINT("Invalid parameters to copy_direct_executable\n");
+        return FALSE;
+    }
+
+    /* Check if source executable exists */
+    if (stat(executable_path, &st) != 0) {
+        DEBUG_PRINT("Source executable not found: %s\n", executable_path);
+        return FALSE;
+    }
+
+    /* Get basename of executable */
+    basename = strrchr(executable_path, '/');
+    basename = basename ? basename + 1 : executable_path;
+
+    /* Create destination path */
+    dest_path = heap_printf("%s/%s", path_to_bundle_macos, basename);
+
+    DEBUG_PRINT("Copying direct executable from %s to %s\n", executable_path, dest_path);
+
+    /* Copy the file */
+    src = fopen(executable_path, "rb");
+    if (!src) {
+        DEBUG_PRINT("Failed to open source executable: %s\n", executable_path);
+        goto cleanup;
+    }
+
+    dst = fopen(dest_path, "wb");
+    if (!dst) {
+        DEBUG_PRINT("Failed to create destination executable: %s\n", dest_path);
+        fclose(src);
+        goto cleanup;
+    }
+
+    /* Copy contents */
+    while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {
+        if (fwrite(buffer, 1, bytes, dst) != bytes) {
+            DEBUG_PRINT("Failed to write to destination: %s\n", dest_path);
+            fclose(src);
+            fclose(dst);
+            goto cleanup;
+        }
+    }
+
+    fclose(src);
+    fclose(dst);
+
+    /* Set executable permissions */
+    chmod(dest_path, 0755);
+
+    /* Verify the copy */
+    if (access(dest_path, X_OK) == 0) {
+        DEBUG_PRINT("Successfully copied direct executable\n");
+        ret = TRUE;
+    } else {
+        DEBUG_PRINT("WARNING: Copied direct executable is not executable: %s\n", dest_path);
+    }
+
+cleanup:
+    free(dest_path);
+    return ret;
 }
 
 
@@ -610,9 +702,19 @@ BOOL build_app_bundle(const AppBundleOptions *options)
 
     DEBUG_PRINT("created bundle %s\n", path_to_bundle);
 
-    ret = generate_bundle_script(path_to_bundle_macos, options);
-    if(ret==FALSE)
-       return ret;
+    /* Generate launcher script or copy direct executable */
+    if (options->direct_exec_path) {
+        ret = copy_direct_executable(options->direct_exec_path, path_to_bundle_macos);
+        if (ret == FALSE) {
+            DEBUG_PRINT("FATAL: Failed to copy direct executable into Application Bundle\n");
+            free(bundle); free(path_to_bundle); free(path_to_bundle_contents); free(path_to_bundle_macos); free(path_to_bundle_resources); free(path_to_bundle_resources_lang);
+            return FALSE;
+        }
+    } else {
+        ret = generate_bundle_script(path_to_bundle_macos, options);
+        if(ret==FALSE)
+           return ret;
+    }
 
     ret = generate_pkginfo_file(path_to_bundle_contents);
     if(ret==FALSE)

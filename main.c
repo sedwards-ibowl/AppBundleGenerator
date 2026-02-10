@@ -116,6 +116,11 @@ int usage(char *progname)
    printf("                       $HOME/Library/<dest_dirname>\n");
    printf("                       Example: --init-resources gconf:gftp\n\n");
 
+   printf("Direct Executable:\n");
+   printf("  --direct-exec PATH   Launch executable directly (no wrapper script)\n");
+   printf("                       Conflicts with positional ExecutableOrCommand\n");
+   printf("                       Path is relative to the bundle's Resources/bin\n\n");
+
    printf("Other Options:\n");
    printf("  --help, -h           Show this help message\n\n");
 
@@ -180,6 +185,7 @@ static struct option long_options[] = {
     {"stage-dependencies", required_argument, 0, 'S'},
     {"init-resources",  required_argument, 0, 'r'},
     {"copy-resources",  required_argument, 0, 'R'},
+    {"direct-exec",     required_argument, 0, 'E'},
     {0, 0, 0, 0}
 };
 
@@ -195,7 +201,7 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
     options->version = "1.0.0";
 
     /* Parse options */
-    while ((c = getopt_long(argc, argv, "i:s:e:I:m:c:V:hHFjudr:R:",
+    while ((c = getopt_long(argc, argv, "i:s:e:I:m:c:V:hHFjudr:R:E:",
                            long_options, &option_index)) != -1) {
         switch (c) {
             case 'i': options->icon_path = optarg; break;
@@ -212,6 +218,7 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
             case 'd': options->allow_dyld_vars = TRUE; break;
             case 'S': options->stage_deps_path = optarg; break;
             case 'R': options->copy_resources_path = optarg; break;
+            case 'E': options->direct_exec_path = optarg; break;
             case 'r': {
                 char *colon = strchr(optarg, ':');
                 if (colon) {
@@ -241,7 +248,23 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
 
     options->bundle_name = argv[optind];
     options->bundle_dest = argv[optind + 1];
-    options->executable_path = argv[optind + 2];
+
+    /* Handle mutual exclusivity of direct-exec and positional executable */
+    if (options->direct_exec_path && (argc - optind >= 3)) {
+        fprintf(stderr, "Error: Cannot use --direct-exec with a positional ExecutableOrCommand argument.\n\n");
+        return 1;
+    }
+
+    if (!options->direct_exec_path) {
+        options->executable_path = argv[optind + 2];
+    } else {
+        /* If direct-exec is used, no positional executable needed, but still need bundle_name and bundle_dest */
+        if (argc - optind < 2) {
+            fprintf(stderr, "Error: Missing required arguments for --direct-exec (BundleName, DestinationDir)\n\n");
+            return usage(argv[0]);
+        }
+        options->executable_path = options->direct_exec_path; // Use direct_exec_path as the internal executable_path
+    }
 
     /* If 4th positional argument is provided, treat it as icon (backward compatibility) */
     if (argc - optind >= 4 && !options->icon_path) {
@@ -312,6 +335,9 @@ int main(int argc, char *argv[])
     }
     if (options.copy_resources_path) {
         printf("  Copy Resources: %s\n", options.copy_resources_path);
+    }
+    if (options.direct_exec_path) {
+        printf("  Direct Executable: %s\n", options.direct_exec_path);
     }
     if (options.init_resources_source) {
         printf("  Init Resources: %s -> %s\n", options.init_resources_source, options.init_resources_dest);
