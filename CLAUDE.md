@@ -114,6 +114,13 @@ make info
 - `--allow-unsigned` - Allow unsigned executable memory
 - `--allow-dyld-vars` - Allow DYLD environment variables
 
+**Dependency Bundling Options:**
+- `--stage-dependencies DIR` - Copy dependencies from DIR into app bundle (copies lib/, share/, etc/, locale/ directories).
+- `--copy-resources DIR` - Copy all contents from DIR into the Resources folder.
+
+**First-Run Resource Initialization:**
+- `--init-resources <source_subdir>:<dest_dirname>` - On first launch, copies resources from the bundle to a user's local directory.
+
 ## Architecture
 
 ### Core Components
@@ -122,21 +129,22 @@ make info
 - Modern `getopt_long` argument parsing
 - `parse_arguments()` - Comprehensive option parsing with validation
 - `usage()` - Detailed help with examples
-- `main()` - Orchestrates bundle creation, icon conversion, and code signing
+- `main()` - Orchestrates bundle creation, icon conversion, and code signing. Now also handles GLib schema compilation and RPATH rewriting after all resources are copied.
 - Error handling with `print_error()` and `error_code_to_string()`
 - Helper utilities: `heap_printf()`, `create_directories()`
 
 **appbundler.c** - Bundle generation engine (577 lines)
-- `build_app_bundle()` - Main orchestrator accepting `AppBundleOptions` struct
+- `build_app_bundle()` - Main orchestrator accepting `AppBundleOptions` struct. Now includes logic for `--copy-resources`.
 - `CreateMyDictionary()` - Generates complete Info.plist with modern keys
 - `generate_bundle_identifier()` - Auto-generates unique bundle IDs from app names
 - `sanitize_bundle_name()` - Converts names to valid identifiers
 - `generate_plist()` - Creates Info.plist using modern CoreFoundation APIs
 - `generate_pkginfo_file()` - Creates PkgInfo file
-- `generate_bundle_script()` - Creates executable shell wrapper
+- `generate_bundle_script()` - Creates executable shell wrapper. Now includes logic for `--init-resources`.
 - `add_icns_for_bundle()` - Icon conversion dispatcher
 - `codesign_bundle()` - Code signing with configurable options
 - `verify_codesign()` - Signature verification
+- `stage_dependencies()` - Handles copying of specific dependency subdirectories. `compile_glib_schemas` and `rewrite_rpaths` calls have been moved out of this function.
 - Uses binary plist format for faster parsing (Info.plist)
 
 **icon_utils.c** - Icon conversion pipeline (268 lines)
@@ -158,7 +166,7 @@ make info
 - Uses XML format (required by codesign, not binary)
 
 **shared.h** - Common definitions (106 lines)
-- `AppBundleOptions` - Main configuration structure
+- `AppBundleOptions` - Main configuration structure. Now includes `init_resources_source`, `init_resources_dest`, and `copy_resources_path`.
 - `CodeSignOptions` - Code signing configuration
 - `IconFormat` - Icon type enumeration
 - `ErrorCode` - Error reporting codes
@@ -178,6 +186,7 @@ AppName.app/
     Resources/
       icon.icns         # Converted icon (if provided)
       English.lproj/    # Localization directory (empty but required)
+      (Copied resources) # If --copy-resources or --stage-dependencies used
     _CodeSignature/     # Created by codesign (if signed)
       CodeResources
 ```

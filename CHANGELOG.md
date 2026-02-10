@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - First-run resource initialization (`--init-resources`) to copy resources from the bundle to a user's local directory on first launch.
+- Flexible resource copying with `--copy-resources` to copy an entire directory into the bundle.
 - GitHub Actions workflow for automated builds and releases
 - Dependency staging system (`--stage-dependencies`) for bundling GTK/GLib libraries
   - Copies lib/, share/, etc/, locale/ directories into app bundle
@@ -16,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - GLib schema compilation support
   - Environment variable setup in wrapper script (XDG_DATA_DIRS, GTK_PATH, etc.)
 - Documentation for building GTK applications with jhbuild (examples/JHBUILD-gFTP.md)
+
+### Fixed
+- Corrected order of operations to ensure `compile_glib_schemas` and `rewrite_rpaths` are called after all resources are copied.
+- Fixed a bug in `rewrite_rpaths` that caused syntax errors when rewriting library paths.
+
 
 ## [2.0.0] - 2025-01-12
 

@@ -75,6 +75,10 @@ Installs to `/usr/local/bin/AppBundleGenerator`
 - `--allow-unsigned` - Allow unsigned executable memory
 - `--allow-dyld-vars` - Allow DYLD environment variables
 
+**Dependency Bundling:**
+- `--stage-dependencies DIR` - Copy dependencies from DIR into app bundle (copies lib/, share/, etc/, locale/ directories)
+- `--copy-resources DIR` - Copy all contents from DIR into the Resources folder
+
 **First-Run Resource Initialization:**
 - `--init-resources <source_subdir>:<dest_dirname>` - On first launch, copies resources from the bundle to a user's local directory.
 

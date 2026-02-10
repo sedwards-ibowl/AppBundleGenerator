@@ -68,6 +68,30 @@ open "/tmp/My App.app"
 security find-identity -p codesigning -v
 ```
 
+## Dependency Bundling
+
+You can bundle dependencies like libraries and resources with your application.
+
+### Staging Dependencies
+
+The `--stage-dependencies` option is useful for bundling libraries from a prefix (like Homebrew or a jhbuild checkout). It copies `lib/`, `share/`, and `etc/` directories.
+
+```bash
+./AppBundleGenerator \
+  --stage-dependencies /opt/homebrew \
+  'My App' /Applications '/usr/local/bin/myapp'
+```
+
+### Copying Custom Resources
+
+The `--copy-resources` option provides a more flexible way to copy an entire directory into your application's `Resources` folder. This is useful for including assets, themes, or other resources.
+
+```bash
+./AppBundleGenerator \
+  --copy-resources /path/to/my-resources \
+  'My App' /Applications '/usr/local/bin/myapp'
+```
+
 ## First-Run Resource Initialization
 
 On first launch, you can automatically copy resources (like default configurations) from your app bundle to a user's local directory (`~/Library`).
@@ -145,6 +169,8 @@ ls -R "/tmp/My App.app"
 | `--identifier ID` | Custom bundle ID | `--identifier com.example.app` |
 | `--version VER` | Set version | `--version 2.0.0` |
 | `--min-os VER` | Minimum macOS version | `--min-os 12.0` |
+| `--stage-dependencies DIR` | Bundle dependencies from prefix | `--stage-dependencies /opt/homebrew` |
+| `--copy-resources DIR` | Copy directory to Resources | `--copy-resources ./assets` |
 | `--init-resources SRC:DEST` | Initialize resources on first run | `--init-resources gconf:gftp` |
 
 ### Get Help
