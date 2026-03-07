@@ -49,6 +49,8 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <limits.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -187,7 +189,7 @@ CFDictionaryRef CreateMyDictionary(const char *linkname, const char *category,
    /* Signature is deprecated but kept for compatibility */
    CFDictionarySetValue( dict, CFSTR("CFBundleSignature"), CFSTR("????") );
 
-   CFDictionarySetValue( dict, CFSTR("CFBundleIconFile"), CFSTR("icon.icns") );
+   CFDictionarySetValue( dict, CFSTR("CFBundleIconFile"), CFSTR("icon") );
 
    /* ========== NEW KEYS for macOS 12+ ========== */
 
@@ -1026,6 +1028,7 @@ BOOL compile_glib_schemas(const char *bundle_resources)
 {
     char cmd[2048];
     char *schemas_dir;
+    char real_schemas_dir[PATH_MAX];
     int result;
 
     if (!bundle_resources) {
@@ -1036,29 +1039,35 @@ BOOL compile_glib_schemas(const char *bundle_resources)
     schemas_dir = heap_printf("%s/share/glib-2.0/schemas", bundle_resources);
 
     /* Check if schemas directory exists */
-    snprintf(cmd, sizeof(cmd), "[ -d '%s' ]", schemas_dir);
-    result = system(cmd);
-
-    if (result == 0) {
-        printf("  Compiling GLib schemas...\n");
-
-        /* Compile schemas */
-        snprintf(cmd, sizeof(cmd), "glib-compile-schemas '%s' 2>&1", schemas_dir);
-        result = system(cmd);
-
-        if (result != 0) {
-            fprintf(stderr, "Warning: GLib schema compilation failed (exit code: %d)\n", result);
-            fprintf(stderr, "  The application may not work correctly without compiled schemas\n");
-            free(schemas_dir);
-            return FALSE;
-        }
-
-        printf("  GLib schemas compiled successfully\n");
-    } else {
-        DEBUG_PRINT("Note: No GLib schemas found at %s\n", schemas_dir);
+    struct stat st;
+    if (stat(schemas_dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
+        DEBUG_PRINT("Note: No GLib schemas directory found at %s\n", schemas_dir);
+        free(schemas_dir);
+        return TRUE;
     }
 
+    printf("  Compiling GLib schemas...\n");
+
+    /* Use absolute path to avoid issues with glib-compile-schemas CWD sensitivity */
+    if (realpath(schemas_dir, real_schemas_dir) == NULL) {
+        fprintf(stderr, "Warning: Could not determine absolute path for schemas dir: %s. Using relative path.\n", schemas_dir);
+        strncpy(real_schemas_dir, schemas_dir, sizeof(real_schemas_dir) - 1);
+        real_schemas_dir[sizeof(real_schemas_dir) - 1] = '\0';
+    }
+
+    /* Compile schemas using the absolute path */
+    snprintf(cmd, sizeof(cmd), "glib-compile-schemas '%s' 2>&1", real_schemas_dir);
+    result = system(cmd);
+
     free(schemas_dir);
+
+    if (result != 0) {
+        fprintf(stderr, "Warning: GLib schema compilation failed (exit code: %d)\n", result);
+        fprintf(stderr, "  The application may not work correctly without compiled schemas\n");
+        return FALSE;
+    }
+
+    printf("  GLib schemas compiled successfully\n");
     return TRUE;
 }
 
