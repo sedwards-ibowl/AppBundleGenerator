@@ -121,6 +121,11 @@ int usage(char *progname)
    printf("                       Conflicts with positional ExecutableOrCommand\n");
    printf("                       Path is relative to the bundle's Resources/bin\n\n");
 
+   printf("GTK Options:\n");
+   printf("  --gtk                Enable GTK-specific optimizations\n");
+   printf("                       Aggressively filters unneeded resources\n");
+   printf("                       Fixes broken symlinks by dereferencing them\n\n");
+
    printf("Other Options:\n");
    printf("  --help, -h           Show this help message\n\n");
 
@@ -186,6 +191,7 @@ static struct option long_options[] = {
     {"init-resources",  required_argument, 0, 'r'},
     {"copy-resources",  required_argument, 0, 'R'},
     {"direct-exec",     required_argument, 0, 'E'},
+    {"gtk",             no_argument,       0, 'G'},
     {0, 0, 0, 0}
 };
 
@@ -201,7 +207,7 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
     options->version = "1.0.0";
 
     /* Parse options */
-    while ((c = getopt_long(argc, argv, "i:s:e:I:m:c:V:hHFjudr:R:E:",
+    while ((c = getopt_long(argc, argv, "i:s:e:I:m:c:V:hHFjudr:R:E:G",
                            long_options, &option_index)) != -1) {
         switch (c) {
             case 'i': options->icon_path = optarg; break;
@@ -219,6 +225,7 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
             case 'S': options->stage_deps_path = optarg; break;
             case 'R': options->copy_resources_path = optarg; break;
             case 'E': options->direct_exec_path = optarg; break;
+            case 'G': options->is_gtk_app = TRUE; break;
             case 'r': {
                 char *colon = strchr(optarg, ':');
                 if (colon) {
@@ -264,11 +271,6 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
             return usage(argv[0]);
         }
         options->executable_path = options->direct_exec_path; // Use direct_exec_path as the internal executable_path
-    }
-
-    /* If 4th positional argument is provided, treat it as icon (backward compatibility) */
-    if (argc - optind >= 4 && !options->icon_path) {
-        options->icon_path = argv[optind + 3];
     }
 
     return 0;
@@ -339,6 +341,9 @@ int main(int argc, char *argv[])
     if (options.direct_exec_path) {
         printf("  Direct Executable: %s\n", options.direct_exec_path);
     }
+    if (options.is_gtk_app) {
+        printf("  GTK Optimization: Enabled\n");
+    }
     if (options.init_resources_source) {
         printf("  Init Resources: %s -> %s\n", options.init_resources_source, options.init_resources_dest);
     }
@@ -363,7 +368,7 @@ int main(int argc, char *argv[])
     /* Phase 1.5: Stage dependencies (if requested) */
     if (options.stage_deps_path) {
         printf("\nStaging dependencies...\n");
-        if (!stage_dependencies(options.stage_deps_path, bundle_path, options.bundle_name)) {
+        if (!stage_dependencies(options.stage_deps_path, bundle_path, options.bundle_name, options.is_gtk_app)) {
             fprintf(stderr, "Warning: Dependency staging encountered errors\n");
             fprintf(stderr, "  Bundle may not be fully functional\n");
             /* Continue anyway - not fatal */

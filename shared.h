@@ -82,6 +82,9 @@ typedef struct {
 
     /* Optional - direct executable */
     const char *direct_exec_path;
+
+    /* Optional - GTK specific optimization */
+    BOOL is_gtk_app;
 } AppBundleOptions;
 
 /* Code signing options structure */
@@ -113,7 +116,7 @@ BOOL codesign_bundle(const char *bundle_path, const CodeSignOptions *options);
 BOOL verify_codesign(const char *bundle_path);
 
 /* Dependency staging functions */
-BOOL stage_dependencies(const char *source_dir, const char *bundle_path, const char *bundle_name);
+BOOL stage_dependencies(const char *source_dir, const char *bundle_path, const char *bundle_name, BOOL is_gtk_app);
 BOOL rewrite_rpaths(const char *bundle_path);
 BOOL compile_glib_schemas(const char *bundle_resources);
 

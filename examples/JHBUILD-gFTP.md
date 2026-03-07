@@ -277,25 +277,34 @@ Or for another application, use its module name from your moduleset.
 
 ## Step 9: Create macOS Application Bundle
 
-After building, create a `.app` bundle:
+After building, you can use `AppBundleGenerator` to create a production-ready application bundle. This tool handles library staging, RPATH rewriting, and icon generation automatically.
+
+```bash
+# Use AppBundleGenerator to create the bundle
+# Replace ~/source/jhbuild/install with your actual prefix
+./AppBundleGenerator \
+  --gtk \
+  --icon icons/Putty.svg \
+  --stage-dependencies ~/source/jhbuild/install \
+  --sign - \
+  --hardened-runtime \
+  --allow-dyld-vars \
+  'gFTP' ~/Applications ~/source/jhbuild/install/bin/gftp
+```
+
+### Why use --gtk?
+The `--gtk` flag enables specific optimizations for GTK-based applications:
+- **Aggressive Filtering:** Automatically excludes build tools, documentation, and unneeded resources (cmake, pkgconfig, man pages, etc.) to keep the bundle small.
+- **Symlink Fix:** Automatically dereferences symlinks (using `rsync -L`) to ensure all libraries are actual files within the bundle, fixing broken links common in Homebrew and jhbuild prefixes.
+- **Automatic Setup:** Properly handles GLib schema compilation and RPATH rewriting for a fully relocatable bundle.
+
+### Manual Alternative (Not Recommended)
+If you prefer to create the bundle structure manually:
 
 ```bash
 # Create bundle structure
 mkdir -p ~/Applications/gFTP.app/Contents/{MacOS,Resources,Frameworks,lib}
-
-# Copy executable
-cp ~/source/jhbuild/install/bin/gftp ~/Applications/gFTP.app/Contents/MacOS/
-
-# Copy required libraries
-cd ~/source/jhbuild/install/lib
-cp -R *.dylib ~/Applications/gFTP.app/Contents/lib/
-
-# Copy GTK resources
-mkdir -p ~/Applications/gFTP.app/Contents/Resources/share
-cp -R ~/source/jhbuild/install/share/gtk-3.0 ~/Applications/gFTP.app/Contents/Resources/share/
-cp -R ~/source/jhbuild/install/share/icons ~/Applications/gFTP.app/Contents/Resources/share/
-cp -R ~/source/jhbuild/install/share/glib-2.0 ~/Applications/gFTP.app/Contents/Resources/share/
-
+...
 # Create Info.plist
 cat > ~/Applications/gFTP.app/Contents/Info.plist << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>

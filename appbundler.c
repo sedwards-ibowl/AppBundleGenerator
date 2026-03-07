@@ -328,7 +328,7 @@ static BOOL generate_plist(const char *path_to_bundle_contents, const AppBundleO
     CFRelease(fileURL);
     if (basename_copy) free(basename_copy); // Free duplicated string
 
-    DEBUG_PRINT("Creating Bundle Info.plist at %s\n", wine_dbgstr_a(plist_path));
+    DEBUG_PRINT("Creating Bundle Info.plist at %s\n", plist_path);
 
     return TRUE;
 }
@@ -342,7 +342,7 @@ static BOOL generate_pkginfo_file(const char* path_to_bundle_contents)
 
     bundle_and_pkginfo = heap_printf("%s/%s", path_to_bundle_contents, pkginfo_file);
 
-    DEBUG_PRINT("Creating Bundle PkgInfo at %s\n", wine_dbgstr_a(bundle_and_pkginfo));
+    DEBUG_PRINT("Creating Bundle PkgInfo at %s\n", bundle_and_pkginfo);
 
     file = fopen(bundle_and_pkginfo, "w");
     if (file == NULL)
@@ -440,7 +440,7 @@ static BOOL generate_bundle_script(const char *path_to_bundle_macos, const AppBu
 
     bundle_and_script = heap_printf("%s/%s", path_to_bundle_macos, linkname);
 
-    DEBUG_PRINT("Creating Bundle helper script at %s\n", wine_dbgstr_a(bundle_and_script));
+    DEBUG_PRINT("Creating Bundle helper script at %s\n", bundle_and_script);
 
     file = fopen(bundle_and_script, "w");
     if (file == NULL)
@@ -468,6 +468,8 @@ static BOOL generate_bundle_script(const char *path_to_bundle_macos, const AppBu
         fprintf(file, "export FONTCONFIG_PATH=\"$RESOURCES_DIR/etc/fonts\"\n");
         fprintf(file, "export FONTCONFIG_FILE=\"$RESOURCES_DIR/etc/fonts/fonts.conf\"\n");
         fprintf(file, "export GI_TYPELIB_PATH=\"$RESOURCES_DIR/lib/girepository-1.0\"\n\n");
+        fprintf(file, "#export GTK_THEME=Adwaita\"\n\n");
+        fprintf(file, "#export GTK_DEBUG=Interactive\"\n\n");
     }
 
     /* If first-run resource initialization is requested, add the copy logic */
@@ -499,12 +501,18 @@ static BOOL generate_bundle_script(const char *path_to_bundle_macos, const AppBu
         fprintf(file, "# --- End First-Run Initialization ---\n\n");
     }
 
-    /* For staged dependencies, use the bundled binary */
+    /* For staged dependencies, use the bundled binary only if it was a file that we copied */
     if (has_staged_deps) {
-        /* Binary will be copied to Resources/bin/<basename> */
-        const char *basename = strrchr(path, '/');
-        basename = basename ? basename + 1 : path;
-        fprintf(file, "exec \"$RESOURCES_DIR/bin/%s\" \"$@\"\n\n", basename);
+        struct stat st;
+        if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) {
+            /* Binary will be copied to Resources/bin/<basename> */
+            const char *basename = strrchr(path, '/');
+            basename = basename ? basename + 1 : path;
+            fprintf(file, "exec \"$RESOURCES_DIR/bin/%s\" \"$@\"\n\n", basename);
+        } else {
+            /* If it's a command, run it as is */
+            fprintf(file, "exec %s \"$@\"\n\n", path);
+        }
     } else {
         /* Just like xdg-menus we DO NOT support running a wine binary other
          * than one that is already present in the path
@@ -745,39 +753,45 @@ BOOL build_app_bundle(const AppBundleOptions *options)
         }
     }
 
-    /* Copy executable binary into bundle if staging dependencies */
+    /* Copy executable binary into bundle if staging dependencies and it is a file */
     if (options->stage_deps_path) {
-        ret = copy_executable_to_bundle(options->executable_path, path_to_bundle_resources);
-        if(ret==FALSE) {
-           DEBUG_PRINT("FATAL: Failed to copy executable into Application Bundle\n");
-           /* Cleanup allocated paths */
-           free(bundle);
-           free(path_to_bundle);
-           free(path_to_bundle_contents);
-           free(path_to_bundle_macos);
-           free(path_to_bundle_resources);
-           free(path_to_bundle_resources_lang);
-           return FALSE;
-        }
+        struct stat st_exec;
+        if (stat(options->executable_path, &st_exec) == 0 && S_ISREG(st_exec.st_mode)) {
+            ret = copy_executable_to_bundle(options->executable_path, path_to_bundle_resources);
+            if(ret==FALSE) {
+               DEBUG_PRINT("FATAL: Failed to copy executable into Application Bundle\n");
+               /* Cleanup allocated paths */
+               free(bundle);
+               free(path_to_bundle);
+               free(path_to_bundle_contents);
+               free(path_to_bundle_macos);
+               free(path_to_bundle_resources);
+               free(path_to_bundle_resources_lang);
+               return FALSE;
+            }
 
-        /* Validate that the binary exists in the bundle */
-        const char *basename = strrchr(options->executable_path, '/');
-        basename = basename ? basename + 1 : options->executable_path;
-        char *bundled_binary = heap_printf("%s/bin/%s", path_to_bundle_resources, basename);
-        if (access(bundled_binary, X_OK) != 0) {
-            DEBUG_PRINT("FATAL: Bundled binary is missing or not executable: %s\n", bundled_binary);
+            /* Validate that the binary exists in the bundle */
+            const char *basename = strrchr(options->executable_path, '/');
+            basename = basename ? basename + 1 : options->executable_path;
+            char *bundled_binary = heap_printf("%s/bin/%s", path_to_bundle_resources, basename);
+            if (access(bundled_binary, X_OK) != 0) {
+                DEBUG_PRINT("FATAL: Bundled binary is missing or not executable: %s\n", bundled_binary);
+                free(bundled_binary);
+                /* Cleanup allocated paths */
+                free(bundle);
+                free(path_to_bundle);
+                free(path_to_bundle_contents);
+                free(path_to_bundle_macos);
+                free(path_to_bundle_resources);
+                free(path_to_bundle_resources_lang);
+                return FALSE;
+            }
+            DEBUG_PRINT("Validated bundled binary: %s\n", bundled_binary);
             free(bundled_binary);
-            /* Cleanup allocated paths */
-            free(bundle);
-            free(path_to_bundle);
-            free(path_to_bundle_contents);
-            free(path_to_bundle_macos);
-            free(path_to_bundle_resources);
-            free(path_to_bundle_resources_lang);
-            return FALSE;
+        } else {
+            DEBUG_PRINT("Executable path is a command or missing, not copying to bundle\n");
+            ret = TRUE; /* It's okay if it's a command */
         }
-        DEBUG_PRINT("Validated bundled binary: %s\n", bundled_binary);
-        free(bundled_binary);
     }
 
     /* Cleanup allocated paths */
@@ -893,9 +907,9 @@ BOOL verify_codesign(const char *bundle_path)
 }
 
 /* Stage dependencies from source directory into bundle */
-BOOL stage_dependencies(const char *source_dir, const char *bundle_path, const char *bundle_name)
+BOOL stage_dependencies(const char *source_dir, const char *bundle_path, const char *bundle_name, BOOL is_gtk_app)
 {
-    char cmd[4096];
+    char cmd[8192];
     char *resources_path;
     int result;
 
@@ -904,7 +918,7 @@ BOOL stage_dependencies(const char *source_dir, const char *bundle_path, const c
         return FALSE;
     }
 
-    printf("Staging dependencies from: %s\n", source_dir);
+    printf("Staging dependencies from: %s (GTK mode: %s)\n", source_dir, is_gtk_app ? "Yes" : "No");
 
     resources_path = heap_printf("%s/Contents/Resources", bundle_path);
 
@@ -915,37 +929,95 @@ BOOL stage_dependencies(const char *source_dir, const char *bundle_path, const c
         return FALSE;
     }
 
-    /* Copy lib/ directory */
+    /* Copy lib/ directory 
+     * Added -L to dereference symlinks (fixes broken links in Homebrew/jhbuild)
+     * Added extensive exclusions for build tools and unneeded artifacts
+     */
+    char lib_excludes[2048];
+    snprintf(lib_excludes, sizeof(lib_excludes),
+             "--exclude='pkgconfig' --exclude='*.a' --exclude='*.la' "
+             "--exclude='cmake' --exclude='*.prl' --exclude='*.pc' "
+             "--exclude='node_modules' --exclude='python*' --exclude='rustlib' "
+             "--exclude='gcc' --exclude='gcc-*' --exclude='openvino*' "
+             "--exclude='vtk*' --exclude='*graphblas*' --exclude='mlx*' "
+             "--exclude='zig' --exclude='perl*' --exclude='rustc*' ");
+
     snprintf(cmd, sizeof(cmd),
-             "rsync -a --exclude='pkgconfig' --exclude='*.a' --exclude='*.la' "
-             "'%s/lib/' '%s/lib/' 2>&1",
-             source_dir, resources_path);
+             "rsync -aL %s '%s/lib/' '%s/lib/' 2>&1",
+             lib_excludes, source_dir, resources_path);
+    
     printf("  Copying libraries...\n");
     result = system(cmd);
     if (result != 0) {
         fprintf(stderr, "Warning: Failed to copy lib/ directory (exit code: %d)\n", result);
     }
 
-    /* Copy share/ directory */
+    /* Copy share/ directory 
+     * Added aggressive filtering for non-runtime resources
+     */
+    char share_excludes[4096];
+    snprintf(share_excludes, sizeof(share_excludes),
+             "--exclude='gtk-doc' --exclude='man' --exclude='doc' "
+             "--exclude='info' --exclude='cmake' --exclude='pkgconfig' "
+             "--exclude='aclocal*' --exclude='autoconf' --exclude='automake*' "
+             "--exclude='gettext' --exclude='bash-completion' "
+             "--exclude='zsh' --exclude='fish' --exclude='vim' --exclude='emacs' "
+             "--exclude='gdb' --exclude='codegen' --exclude='dtds' "
+             "--exclude='applications' --exclude='metainfo' --exclude='yelp-*' "
+             "--exclude='awk' --exclude='boost_predef' --exclude='ceres-solver' "
+             "--exclude='ffmpeg' --exclude='ghostscript' --exclude='gir-1.0' "
+             "--exclude='git-*' --exclude='gitweb' --exclude='GConf' "
+             "--exclude='qt*' --exclude='WebP' --exclude='ruby-build' "
+             "--exclude='intltool' --exclude='itstool' --exclude='suite-sparse' "
+             "--exclude='proj' --exclude='*graphblas*' --exclude='ghc*' "
+             "--exclude='*vulkan*' --exclude='ruby-*' --exclude='*opencv*' ");
+
+    /* If it's a GTK app, we might want to exclude even more specific things 
+     * or ensure themes/icons are preserved while other cruft is removed
+     */
+    if (is_gtk_app) {
+        /* Add GTK-specific aggressive exclusions if needed */
+        strncat(share_excludes, "--exclude='gcc-*' --exclude='gdbm' --exclude='readline' ", 
+                sizeof(share_excludes) - strlen(share_excludes) - 1);
+    }
+
     snprintf(cmd, sizeof(cmd),
-             "rsync -a --exclude='gtk-doc' --exclude='man' --exclude='doc' "
-             "'%s/share/' '%s/share/' 2>&1",
-             source_dir, resources_path);
+             "rsync -aL %s '%s/share/' '%s/share/' 2>&1",
+             share_excludes, source_dir, resources_path);
+
     printf("  Copying shared resources...\n");
     result = system(cmd);
     if (result != 0) {
         fprintf(stderr, "Warning: Failed to copy share/ directory (exit code: %d)\n", result);
     }
 
-    /* Copy etc/ directory if it exists */
+    /* Copy etc/ directory if it exists 
+     * Exclude shell completions
+     */
     snprintf(cmd, sizeof(cmd),
-             "if [ -d '%s/etc' ]; then rsync -a '%s/etc/' '%s/etc/' 2>&1; fi",
+             "if [ -d '%s/etc' ]; then "
+             "rsync -aL --exclude='bash_completion.d' '%s/etc/' '%s/etc/' 2>&1; "
+             "fi",
              source_dir, source_dir, resources_path);
     printf("  Copying configuration files...\n");
     result = system(cmd);
     if (result != 0) {
         DEBUG_PRINT("Note: etc/ directory not found or failed to copy\n");
     }
+
+    /* Additional cleanup for unwanted dependencies (as mentioned in TODO.md) */
+    printf("  Cleaning unwanted dependencies...\n");
+    
+    /* Remove Qt frameworks if they were pulled in but not wanted */
+    snprintf(cmd, sizeof(cmd), "rm -rf '%s/lib/Qt'*.framework 2>/dev/null", resources_path);
+    system(cmd);
+    
+    /* Remove specific problematic libraries */
+    snprintf(cmd, sizeof(cmd), "rm -f '%s/lib/libqhull_r'* 2>/dev/null", resources_path);
+    system(cmd);
+    
+    snprintf(cmd, sizeof(cmd), "rm -f '%s/lib/libnode'* 2>/dev/null", resources_path);
+    system(cmd);
 
     free(resources_path);
 
