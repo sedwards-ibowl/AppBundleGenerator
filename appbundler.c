@@ -468,9 +468,10 @@ static BOOL generate_bundle_script(const char *path_to_bundle_macos, const AppBu
         fprintf(file, "export FONTCONFIG_PATH=\"$RESOURCES_DIR/etc/fonts\"\n");
         fprintf(file, "export FONTCONFIG_FILE=\"$RESOURCES_DIR/etc/fonts/fonts.conf\"\n");
         fprintf(file, "export GI_TYPELIB_PATH=\"$RESOURCES_DIR/lib/girepository-1.0\"\n");
+        fprintf(file, "export GDK_BACKEND=\"quartz\"\n");
         fprintf(file, "export PANGOCAIRO_BACKEND=\"coretext\"\n");
         fprintf(file, "export GDK_SCALE=\"2\"\n");
-        fprintf(file, "export GDK_DPI_SCALE=\"1.25\"\n");
+        fprintf(file, "export GDK_DPI_SCALE=\"1\"\n");
 
         fprintf(file, "#export GTK_THEME=\"Adwaita\"\n");
         fprintf(file, "#export GTK_DEBUG=\"Interactive\"\n\n");
