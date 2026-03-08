@@ -1,0 +1,13 @@
+Disable/Remove suppport for 
+│ 268 + # Remove unwanted Qt dependencies                                                                                                                                                                                                     │
+│ 269 + echo -e "${YELLOW}Cleaning unwanted Qt and Node.js dependencies...${NC}"                                                                                                                                                              │
+│ 270 + rm -rf "$BUNDLE_PATH/Contents/Resources/lib/Qt*.framework"                                                                                                                                                                            │
+│ 271 + rm -rf "$BUNDLE_PATH/Contents/Resources/lib/libqhull_r.dylib"                                                                                                                                                                         │
+│ 272 + rm -rf "$BUNDLE_PATH/Contents/Resources/lib/libqhull_r.8.0.2.dylib"                                                                                                                                                                   │
+│ 273 + rm -rf "$BUNDLE_PATH/Contents/Resources/lib/libqhull_r.8.0.dylib"                                                                                                                                                                     │
+│ 274 + rm -rf "$BUNDLE_PATH/Contents/Resources/share/qt"                                                                                                                                                                                     │
+│ 276 + # Remove unwanted Node.js dependencies                                                                                                                                                                                                │
+│ 277 + rm -rf "$BUNDLE_PATH/Contents/Resources/lib/node_modules"                                                                                                                                                                             │
+│ 278 + rm -rf "$BUNDLE_PATH/Contents/Resources/lib/libnode.141.dylib"                                                                                                                                                                        │
+│ 279 + rm -rf "$BUNDLE_PATH/Contents/Resources/etc/bash_completion.d/npm"                                                                                                                                                                    │
+
