@@ -85,6 +85,17 @@ typedef struct {
 
     /* Optional - GTK specific optimization */
     BOOL is_gtk_app;
+
+    /* Optional - Custom environment variables */
+    char **env_vars;
+    int env_vars_count;
+
+    /* Optional - Custom exclusion patterns */
+    char **excludes;
+    int excludes_count;
+
+    /* Optional - Convert XPM to PNG */
+    BOOL convert_xpm;
 } AppBundleOptions;
 
 /* Code signing options structure */
@@ -116,9 +127,10 @@ BOOL codesign_bundle(const char *bundle_path, const CodeSignOptions *options);
 BOOL verify_codesign(const char *bundle_path);
 
 /* Dependency staging functions */
-BOOL stage_dependencies(const char *source_dir, const char *bundle_path, const char *bundle_name, BOOL is_gtk_app);
+BOOL stage_dependencies(const AppBundleOptions *options, const char *bundle_path);
 BOOL rewrite_rpaths(const char *bundle_path);
 BOOL compile_glib_schemas(const char *bundle_resources);
+BOOL convert_xpm_to_png(const char *bundle_path);
 
 /* Error handling */
 void print_error(ErrorCode code, const char *details);

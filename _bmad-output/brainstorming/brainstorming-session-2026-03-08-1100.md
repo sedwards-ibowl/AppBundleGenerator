@@ -1,15 +1,17 @@
 ---
 stepsCompleted: [1, 2, 3, 4]
 inputDocuments: []
-session_topic: 'Modernizing the App Bundler'
-session_goals: 'Identify and replace outdated or incorrect macOS APIs with modern, recommended equivalents.'
+session_topic: 'Modernizing the App Bundler: Library Dependency & Path Correction'
+session_goals: '1. Eliminate unneeded libraries from bundles. 2. Fix broken dyld references to ensure portability without build environment paths.'
 selected_approach: 'AI-Recommended Techniques'
 techniques_used: ['SCAMPER Method', 'Analogical Thinking', 'Chaos Engineering']
 ideas_generated: 25
 context_file: ''
-session_active: false
-workflow_completed: true
-facilitation_notes: 'User is focused on creating AppBundleGenerator 2.0 with a "Dual-Mode" (Wine vs Native) architecture and XDG-to-macOS mapping.'
+session_active: true
+workflow_completed: false
+session_continued: true
+continuation_date: 2026-03-14
+facilitation_notes: 'User is addressing critical technical hurdles: bundle bloat and broken library search paths (LC_LOAD_DYLIB).'
 ---
 
 # Brainstorming Session Results
@@ -77,6 +79,27 @@ We're focusing on modernizing the App Bundler codebase by identifying and replac
 - **Resources Needed:** macOS 14/15 SDKs, sample GTK and Wine applications for testing.
 - **Timeline:** Incremental development alongside current product releases.
 - **Success Indicators:** Successful creation of a "thin" bundle that correctly maps XDG paths.
+
+### Proposed "AppBundleGenerator 2.0" Strategy:
+
+**Step 1: The "Surgical" Dependency Tracer (Replaces `stage_dependencies`)**
+*   **Logic:** Instead of copying the entire Homebrew/MacPorts `/lib` folder, we implement a recursive tracer in C.
+*   **Process:** 
+    1. Start with the main executable.
+    2. Use `otool -L` to find all non-system dependencies (ignoring `/usr/lib` and `/System`).
+    3. Copy only the required `.dylib` files to `Contents/Resources/lib`.
+    4. Recursively repeat the process for every copied library.
+    5. Maintain a "seen" list to prevent infinite recursion.
+
+**Step 2: Universal Path Rebasing**
+*   **ID Rewriting:** Every copied library has its internal ID changed to `@rpath/libname.dylib`.
+*   **Reference Rewriting:** Every `LC_LOAD_DYLIB` command in the bundle is updated from absolute paths (e.g., `/opt/homebrew/...`) to `@rpath/libname.dylib`.
+*   **RPATH Setup:** The main executable's RPATH is set to `@executable_path/../Resources/lib`.
+
+**Step 3: Outcome Goals**
+*   **Size Reduction:** Target < 100MB for gFTP (down from 1.6GB).
+*   **True Portability:** Zero dependencies on `/opt/homebrew` or `/opt/local`.
+*   **Self-Contained:** The bundle becomes a "black box" that works on any Mac with the minimum OS version.
 
 ## Session Summary and Insights
 

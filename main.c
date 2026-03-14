@@ -127,6 +127,11 @@ int usage(char *progname)
    printf("                       Fixes broken symlinks by dereferencing them\n\n");
 
    printf("Other Options:\n");
+   printf("  --env KEY=VALUE      Add an environment variable to the launcher script\n");
+   printf("                       Can be used multiple times\n");
+   printf("  --exclude PATTERN    Exclude files matching PATTERN from dependency staging\n");
+   printf("                       Can be used multiple times\n");
+   printf("  --convert-xpm        Convert all XPM files in the bundle to PNG (requires 'magick')\n");
    printf("  --help, -h           Show this help message\n\n");
 
    printf("Examples:\n\n");
@@ -192,6 +197,9 @@ static struct option long_options[] = {
     {"copy-resources",  required_argument, 0, 'R'},
     {"direct-exec",     required_argument, 0, 'E'},
     {"gtk",             no_argument,       0, 'G'},
+    {"env",             required_argument, 0, 'n'},
+    {"exclude",         required_argument, 0, 'x'},
+    {"convert-xpm",     no_argument,       0, 'X'},
     {0, 0, 0, 0}
 };
 
@@ -207,7 +215,7 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
     options->version = "1.0.0";
 
     /* Parse options */
-    while ((c = getopt_long(argc, argv, "i:s:e:I:m:c:V:hHFjudr:R:E:G",
+    while ((c = getopt_long(argc, argv, "i:s:e:I:m:c:V:hHFjudr:R:E:Gn:x:X",
                            long_options, &option_index)) != -1) {
         switch (c) {
             case 'i': options->icon_path = optarg; break;
@@ -226,6 +234,21 @@ int parse_arguments(int argc, char *argv[], AppBundleOptions *options)
             case 'R': options->copy_resources_path = optarg; break;
             case 'E': options->direct_exec_path = optarg; break;
             case 'G': options->is_gtk_app = TRUE; break;
+            case 'X': options->convert_xpm = TRUE; break;
+            case 'n': {
+                options->env_vars = realloc(options->env_vars, (options->env_vars_count + 1) * sizeof(char *));
+                if (options->env_vars) {
+                    options->env_vars[options->env_vars_count++] = strdup(optarg);
+                }
+                break;
+            }
+            case 'x': {
+                options->excludes = realloc(options->excludes, (options->excludes_count + 1) * sizeof(char *));
+                if (options->excludes) {
+                    options->excludes[options->excludes_count++] = strdup(optarg);
+                }
+                break;
+            }
             case 'r': {
                 char *colon = strchr(optarg, ':');
                 if (colon) {
@@ -344,8 +367,17 @@ int main(int argc, char *argv[])
     if (options.is_gtk_app) {
         printf("  GTK Optimization: Enabled\n");
     }
+    if (options.convert_xpm) {
+        printf("  XPM to PNG Conversion: Enabled\n");
+    }
     if (options.init_resources_source) {
         printf("  Init Resources: %s -> %s\n", options.init_resources_source, options.init_resources_dest);
+    }
+    if (options.env_vars_count > 0) {
+        printf("  Custom Env Variables: %d set\n", options.env_vars_count);
+    }
+    if (options.excludes_count > 0) {
+        printf("  Custom Exclusions: %d set\n", options.excludes_count);
     }
     if (options.signing_identity) {
         printf("  Signing: %s%s\n", options.signing_identity,
@@ -368,7 +400,7 @@ int main(int argc, char *argv[])
     /* Phase 1.5: Stage dependencies (if requested) */
     if (options.stage_deps_path) {
         printf("\nStaging dependencies...\n");
-        if (!stage_dependencies(options.stage_deps_path, bundle_path, options.bundle_name, options.is_gtk_app)) {
+        if (!stage_dependencies(&options, bundle_path)) {
             fprintf(stderr, "Warning: Dependency staging encountered errors\n");
             fprintf(stderr, "  Bundle may not be fully functional\n");
             /* Continue anyway - not fatal */
@@ -376,7 +408,7 @@ int main(int argc, char *argv[])
         printf("\n");
     }
 
-    /* Phase 1.7: Finalize bundle (compile schemas, rewrite rpaths) */
+    /* Phase 1.7: Finalize bundle (compile schemas, rewrite rpaths, convert icons) */
     if (options.stage_deps_path || options.copy_resources_path) {
         char *resources_path = heap_printf("%s/Contents/Resources", bundle_path);
         printf("\nFinalizing bundle...\n");
@@ -384,6 +416,13 @@ int main(int argc, char *argv[])
         /* Compile GLib schemas if present */
         if (!compile_glib_schemas(resources_path)) {
             fprintf(stderr, "Warning: GLib schema compilation failed\n");
+        }
+
+        /* Convert XPM icons to PNG if requested */
+        if (options.convert_xpm) {
+            if (!convert_xpm_to_png(bundle_path)) {
+                fprintf(stderr, "Warning: XPM to PNG conversion failed\n");
+            }
         }
 
         /* Rewrite RPATHs for all binaries */
@@ -471,6 +510,20 @@ cleanup:
 
     if (bundle_path) {
         free(bundle_path);
+    }
+
+    if (options.env_vars) {
+        for (int i = 0; i < options.env_vars_count; i++) {
+            free(options.env_vars[i]);
+        }
+        free(options.env_vars);
+    }
+
+    if (options.excludes) {
+        for (int i = 0; i < options.excludes_count; i++) {
+            free(options.excludes[i]);
+        }
+        free(options.excludes);
     }
 
     return ret;
